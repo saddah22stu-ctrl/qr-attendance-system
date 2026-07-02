@@ -1,28 +1,40 @@
 version: '3.8'
 
 services:
-  mongo:
-    image: mongo:5.0
+  mysql:
+    image: mysql:8.0
     ports:
-      - "27017:27017"
+      - "3306:3306"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: qr_attendance
+      MYSQL_USER: qr_user
+      MYSQL_PASSWORD: qr_password
     volumes:
-      - mongo_data:/data/db
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
 
   backend:
     build: ./backend
     ports:
       - "5000:5000"
     environment:
-      MONGODB_URI: mongodb://admin:password@mongo:27017/qr-attendance?authSource=admin
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: qr_attendance
+      DB_USER: qr_user
+      DB_PASSWORD: qr_password
+      DB_DIALECT: mysql
       JWT_SECRET: your_super_secret_jwt_key
       NODE_ENV: production
     depends_on:
-      - mongo
+      mysql:
+        condition: service_healthy
     volumes:
       - ./backend:/app
 
 volumes:
-  mongo_data:
+  mysql_data:

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** (v14 or higher)
-- **MongoDB** (v4.0 or higher)
+- **MySQL** (v8.0 or higher) - **UPDATED FROM MONGODB**
 - **npm** or **yarn**
 - **Expo CLI** (for mobile app)
 - **Docker & Docker Compose** (optional, for containerized setup)
@@ -13,16 +13,19 @@
 ```
 qr-attendance-system/
 ├── backend/                 # Express.js API Server
-│   ├── models/             # MongoDB Schemas
-│   ├── controllers/        # Business Logic
-│   ├── routes/             # API Endpoints
-│   ├── server.js           # Main Server File
-│   └── .env.example        # Environment Variables
-├── mobile-app/             # React Native Mobile Application
-│   ├── screens/            # Mobile Screens
-│   ├── App.js              # Main App Component
-│   └── app.json            # Expo Configuration
-├── docker-compose.yml      # Docker Setup
+│   ├── config/              # Database configuration
+│   ├── models/              # Sequelize Models (MySQL)
+│   ├── controllers/         # Business Logic
+│   ├── routes/              # API Endpoints
+│   ├── Dockerfile           # Docker configuration
+│   ├── server.js            # Main Server File
+│   └── .env.example         # Environment Variables (MySQL)
+├── mobile-app/              # React Native Mobile Application
+│   ├── screens/             # Mobile Screens
+│   ├── App.js               # Main App Component
+│   └── app.json             # Expo Configuration
+├── admin-dashboard/         # React Admin Dashboard
+├── docker-compose.yml       # Docker Setup (MySQL instead of MongoDB)
 └── README.md
 ```
 
@@ -30,16 +33,48 @@ qr-attendance-system/
 
 ### Option 1: Local Setup (Recommended for Development)
 
+#### Prerequisites for Local Setup
+
+1. **Install MySQL 8.0**
+   - [Windows](https://dev.mysql.com/downloads/mysql/)
+   - [macOS](https://dev.mysql.com/downloads/mysql/)
+   - [Linux](https://dev.mysql.com/doc/mysql-apt-repository-quick-guide/en/)
+
+2. **Create Database and User**
+
+   ```bash
+   # Connect to MySQL
+   mysql -u root -p
+   ```
+
+   ```sql
+   -- Create database
+   CREATE DATABASE qr_attendance;
+
+   -- Create user
+   CREATE USER 'qr_user'@'localhost' IDENTIFIED BY 'qr_password';
+
+   -- Grant permissions
+   GRANT ALL PRIVILEGES ON qr_attendance.* TO 'qr_user'@'localhost';
+   FLUSH PRIVILEGES;
+   EXIT;
+   ```
+
 #### Backend Setup
 
 ```bash
 cd backend
-npm install
+
+# Copy environment template
 cp .env.example .env
 
-# Edit .env with your MongoDB connection string
-# Default: mongodb://localhost:27017/qr-attendance
+# Edit .env with your MySQL connection string
+# Default: DB_HOST=localhost, DB_USER=qr_user, DB_PASSWORD=qr_password
 
+# Install dependencies
+npm install
+
+# Start the server
 npm start
 # Server will run on http://localhost:5000
 ```
@@ -48,7 +83,9 @@ npm start
 
 ```bash
 cd mobile-app
+
 npm install
+
 npm start
 
 # Choose platform:
@@ -64,39 +101,66 @@ npm start
 docker-compose up -d
 
 # Backend will be available at: http://localhost:5000
-# MongoDB will be available at: mongodb://localhost:27017
+# MySQL will be available at: localhost:3306
+
+# View logs
+docker-compose logs -f backend
+
+# Stop services
+docker-compose down
 ```
 
 ## 🔧 Configuration
 
 ### Backend Environment Variables (.env)
 
-```
-# Database
-MONGODB_URI=mongodb://localhost:27017/qr-attendance
-MONGODB_USER=admin
-MONGODB_PASSWORD=password
+**UPDATED: Now uses MySQL configuration**
 
-# Server
+```env
+# MySQL Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=qr_attendance
+DB_USER=qr_user
+DB_PASSWORD=qr_password
+DB_DIALECT=mysql
+
+# Server Configuration
 PORT=5000
 NODE_ENV=development
 
-# Authentication
+# JWT Authentication
 JWT_SECRET=your_super_secret_jwt_key_change_this
 JWT_EXPIRE=7d
 
-# QR Code
+# QR Code Configuration
 QR_CODE_EXPIRY=15  # minutes
 QR_CODE_SECRET=your_qr_code_secret
 
-# CORS
+# CORS Configuration
 MOBILE_APP_URL=http://localhost:8081
 ADMIN_DASHBOARD_URL=http://localhost:3000
+
+# Sequelize Configuration (Connection Pooling)
+SEQUELIZE_LOGGING=false
+SEQUELIZE_POOL_MIN=5
+SEQUELIZE_POOL_MAX=20
+SEQUELIZE_POOL_IDLE=10000
 ```
+
+### Docker Compose Configuration
+
+**UPDATED: Uses MySQL 8.0 instead of MongoDB**
+
+The `docker-compose.yml` now includes:
+- **MySQL 8.0** service with persistent storage
+- Health checks to ensure MySQL is ready before backend starts
+- Environment variables for MySQL configuration
+- Volume mapping for database persistence
 
 ## 📱 Mobile App API Configuration
 
-In `mobile-app/screens/`, update API_URL to your backend:
+In `mobile-app/`, update API_URL to your backend:
 
 ```javascript
 const API_URL = 'http://your-backend-url:5000/api';
@@ -174,7 +238,7 @@ const API_URL = 'http://your-backend-url:5000/api';
 - CORS Protection
 - Helmet.js Security Headers
 - Input Validation
-- MongoDB Injection Prevention
+- SQL Injection Prevention (via Sequelize ORM)
 
 ## 📊 Real-time Features
 
@@ -212,24 +276,31 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 ## 🐛 Troubleshooting
 
-### MongoDB Connection Error
-- Ensure MongoDB is running
-- Check MONGODB_URI in .env
-- Verify credentials if using authentication
+### MySQL Connection Error
+- Ensure MySQL is running: `mysql -u root -p`
+- Check DB_HOST, DB_USER, DB_PASSWORD in .env
+- Verify database exists: `mysql -u qr_user -p -e "SHOW DATABASES;" qr_attendance`
 
 ### Port Already in Use
 ```bash
-# Kill process using port 5000
-lsof -ti:5000 | xargs kill -9
-
-# Or change PORT in .env
-PORT=5001
+# Change PORT in .env or kill process
+lsof -ti:3306 | xargs kill -9  # MySQL
+lsof -ti:5000 | xargs kill -9  # Backend
 ```
 
 ### QR Scanner Not Working
 - Grant camera permissions in mobile app
 - Check device has camera
 - Ensure good lighting for scanning
+
+### Database Sync Issues
+- Clear MySQL database and restart: `docker-compose down && docker-compose up -d`
+- Or manually reset: `DROP DATABASE qr_attendance; CREATE DATABASE qr_attendance;`
+
+## 📝 Database Migration
+
+For detailed information about the MongoDB to MySQL migration:
+- See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)
 
 ## 📝 License
 
@@ -243,7 +314,8 @@ For issues and feature requests, please create an issue on GitHub.
 
 - [Express.js Documentation](https://expressjs.com/)
 - [React Native Documentation](https://reactnative.dev/)
-- [MongoDB Documentation](https://docs.mongodb.com/)
+- [MySQL Documentation](https://dev.mysql.com/doc/)
+- [Sequelize Documentation](https://sequelize.org/)
 - [Socket.io Documentation](https://socket.io/docs/)
 - [Expo Documentation](https://docs.expo.dev/)
 
