@@ -1,12 +1,12 @@
-const Lecture = require('../models/Lecture');
-const User = require('../models/User');
+const { Lecture, User } = require('../models');
 
+// Create a new lecture
 exports.createLecture = async (req, res) => {
   try {
-    const { title, course, date, startTime, endTime, qrDuration, room, description, students } = req.body;
+    const { title, course, date, startTime, endTime, qrDuration, room, description } = req.body;
     const lecturerId = req.user?.id || req.body.lecturerId;
 
-    const lecture = new Lecture({
+    const lecture = await Lecture.create({
       title,
       course,
       date,
@@ -15,12 +15,14 @@ exports.createLecture = async (req, res) => {
       qrDuration: qrDuration || 15,
       room,
       description,
-      lecturer: lecturerId,
-      students: students || []
+      lecturerId,
+      status: 'scheduled'
     });
 
-    await lecture.save();
-    await lecture.populate('lecturer', 'name email');
+    // Include lecturer info
+    await lecture.reload({
+      include: [{ association: 'lecturer', attributes: ['id', 'name', 'email'] }]
+    });
 
     res.status(201).json({
       success: true,
@@ -28,43 +30,64 @@ exports.createLecture = async (req, res) => {
       lecture
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
+// Get all lectures with filters
 exports.getAllLectures = async (req, res) => {
   try {
-    const { status, course } = req.query;
+    const { status, course, page = 1, limit = 10 } = req.query;
 
-    let filter = {};
-    if (status) filter.status = status;
-    if (course) filter.course = course;
+    const whereClause = {};
+    if (status) whereClause.status = status;
+    if (course) whereClause.course = course;
 
-    const lectures = await Lecture.find(filter)
-      .populate('lecturer', 'name email')
-      .populate('students', 'name studentId email')
-      .sort({ date: -1 });
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Lecture.findAndCountAll({
+      where: whereClause,
+      include: [{ association: 'lecturer', attributes: ['id', 'name', 'email'] }],
+      order: [['date', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
 
     res.json({
       success: true,
-      count: lectures.length,
-      lectures
+      count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      lectures: rows
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
+// Get lecture by ID
 exports.getLectureById = async (req, res) => {
   try {
     const { lectureId } = req.params;
 
-    const lecture = await Lecture.findById(lectureId)
-      .populate('lecturer', 'name email')
-      .populate('students', 'name studentId email');
+    const lecture = await Lecture.findByPk(lectureId, {
+      include: [
+        { association: 'lecturer', attributes: ['id', 'name', 'email'] },
+        { association: 'attendances', attributes: ['id', 'studentId', 'status', 'checkedInAt'] }
+      ]
+    });
 
     if (!lecture) {
-      return res.status(404).json({ message: 'Lecture not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Lecture not found'
+      });
     }
 
     res.json({
@@ -72,24 +95,32 @@ exports.getLectureById = async (req, res) => {
       lecture
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
+// Update lecture
 exports.updateLecture = async (req, res) => {
   try {
     const { lectureId } = req.params;
     const updates = req.body;
 
-    const lecture = await Lecture.findByIdAndUpdate(
-      lectureId,
-      updates,
-      { new: true, runValidators: true }
-    );
+    const lecture = await Lecture.findByPk(lectureId);
 
     if (!lecture) {
-      return res.status(404).json({ message: 'Lecture not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Lecture not found'
+      });
     }
+
+    await lecture.update(updates);
+    await lecture.reload({
+      include: [{ association: 'lecturer', attributes: ['id', 'name', 'email'] }]
+    });
 
     res.json({
       success: true,
@@ -97,50 +128,37 @@ exports.updateLecture = async (req, res) => {
       lecture
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-exports.addStudentsToLecture = async (req, res) => {
-  try {
-    const { lectureId } = req.params;
-    const { studentIds } = req.body;
-
-    const lecture = await Lecture.findByIdAndUpdate(
-      lectureId,
-      { $addToSet: { students: { $each: studentIds } } },
-      { new: true }
-    ).populate('students', 'name studentId email');
-
-    if (!lecture) {
-      return res.status(404).json({ message: 'Lecture not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Students added to lecture',
-      lecture
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
   }
 };
 
+// Delete lecture
 exports.deleteLecture = async (req, res) => {
   try {
     const { lectureId } = req.params;
 
-    const lecture = await Lecture.findByIdAndDelete(lectureId);
+    const lecture = await Lecture.findByPk(lectureId);
 
     if (!lecture) {
-      return res.status(404).json({ message: 'Lecture not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Lecture not found'
+      });
     }
+
+    await lecture.destroy();
 
     res.json({
       success: true,
       message: 'Lecture deleted successfully'
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
